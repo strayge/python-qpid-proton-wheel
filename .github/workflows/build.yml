@@ -24,7 +24,7 @@ jobs:
           VERSION=`cat version.txt | head -n 1`
           echo "Current version: $VERSION"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          pip download --no-deps python-qpid-proton==$VERSION
+          pip download --no-binary ":all:" --no-deps python-qpid-proton==$VERSION
       - name: Extract source
         shell: bash
         run: |
