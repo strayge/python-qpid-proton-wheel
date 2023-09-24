@@ -39,7 +39,11 @@ jobs:
       - name: Add postfix to package name
         # twine read package name to upload from metadata, so we need to change it
         shell: bash
-        run: sed -i 's/python-qpid-proton/python-qpid-proton-wheel/' setup.py
+        run: |
+          sed -i 's/python-qpid-proton/python-qpid-proton-wheel/' setup.py
+          sed -i 's/python-qpid-proton/python-qpid-proton-wheel/' setup.cfg
+          sed -i 's/python-qpid-proton/python-qpid-proton-wheel/' pyproject.toml
+
       - run: python -m cibuildwheel --output-dir dist
       - name: List builded wheels
         run: ls dist
