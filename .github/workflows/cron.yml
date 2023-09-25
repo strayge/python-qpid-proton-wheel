@@ -19,35 +19,39 @@ jobs:
         python-version: "3.11"
 
     - name: Get latest package version
+      id: get-latest-version
       run: |
-        VERSION=`python3 -m pip index versions python-qpid-proton 2>&1 | grep -v 'WARNING' | head -n 1 | grep -Eo '\(([0-9\.]+)\)$'`
-        LATEST_VERSION=`echo ${VERSION} | sed 's/[(\)]//g'`
-        if [ -z "$VERSION" ]; then
-          echo "Failed to get latest package version. Exiting."
-          exit 1
-        fi
-        echo "LATEST_VERSION=${LATEST_VERSION}" >> "$GITHUB_ENV"
+        VERSION=`python3 -m pip index versions python-qpid-proton 2>&1 | grep -v 'WARNING' | head -n 1 | grep -Eo '\(([0-9\.]+)\)$' | sed 's/[(\)]//g'`
+        echo "sucess=true" >> "$GITHUB_OUTPUT"
+        echo "latest_version=${VERSION}" >> "$GITHUB_OUTPUT"
 
     - name: Get latest committed version
+      id: get-commited-version
+      if: steps.get-latest-version.outputs.success == 'true'
       run: |
         COMMITED_VERSION=`cat version.txt | head -n 1`
-        if [ -z "$COMMITED_VERSION" ]; then
-          echo "Failed to get latest committed version. Exiting."
-          exit 1
-        fi
-        echo "COMMITED_VERSION=${COMMITED_VERSION}" >> "$GITHUB_ENV"
+        echo "sucess=true" >> "$GITHUB_OUTPUT"
+        echo "commited_version=${COMMITED_VERSION}" >> "$GITHUB_OUTPUT"
 
     - name: Compare versions
       id: compare-versions
+      if: steps.get-commited-version.outputs.success == 'true'
       run: |
+        LATEST_VERSION=${{ steps.get-latest-version.outputs.latest_version }}
+        COMMITED_VERSION=${{ steps.get-commited-version.outputs.commited_version }}
         if [ "$LATEST_VERSION" == "$COMMITED_VERSION" ]; then
+          echo "sucess=false" >> "$GITHUB_OUTPUT"
           echo "No new version detected ${LATEST_VERSION} == ${COMMITED_VERSION}. Exiting."
-          exit 1
+        else
+          echo "sucess=true" >> "$GITHUB_OUTPUT"
+          echo "New version detected: ${LATEST_VERSION} (was ${COMMITED_VERSION})"
         fi
-        echo "New version detected: ${LATEST_VERSION} (was ${COMMITED_VERSION})"
 
     - name: Commit and push if new version detected
+      if: steps.compare-versions.outputs.success == 'true'
       run: |
+        LATEST_VERSION=${{ steps.get-latest-version.outputs.latest_version }}
+        echo "Commiting and pushing new version ${LATEST_VERSION}"
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         git checkout dev
@@ -55,3 +59,6 @@ jobs:
         git add version.txt
         git commit -m "Update version to ${LATEST_VERSION}"
         git push --set-upstream origin dev
+        gh pr create -B master -H dev --title "Update version to ${LATEST_VERSION}" --body "Created by Github action"
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
