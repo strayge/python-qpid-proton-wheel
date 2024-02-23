@@ -9,7 +9,7 @@ jobs:
   build_wheels:
     strategy:
       matrix:
-        os: [ubuntu-20.04, windows-2019, macOS-11]
+        os: [ubuntu-20.04, macos-11, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -32,10 +32,10 @@ jobs:
           rm python-qpid-proton-$VERSION.tar.gz &&
           cp -r python-qpid-proton-$VERSION/* ./
       - name: Install gnu-sed on macOS
-        if: matrix.os == 'macOS-11'
+        if: runner.os == 'macOS'
         run: |
-          brew install gnu-sed &&
-          ln -s /usr/local/bin/gsed /usr/local/bin/sed
+          brew install gnu-sed
+          ln -s `which gsed` /usr/local/bin/sed
       - name: Add postfix to package name
         # twine read package name to upload from metadata, so we need to change it
         shell: bash
@@ -43,8 +43,16 @@ jobs:
           sed -i 's/python-qpid-proton/python-qpid-proton-wheel/' setup.py
           sed -i 's/python-qpid-proton/python-qpid-proton-wheel/' setup.cfg
           sed -i 's/python-qpid-proton/python-qpid-proton-wheel/' pyproject.toml
-
+      - name: Set up QEMU on Linux
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: all
       - run: python -m cibuildwheel --output-dir dist
+        env:
+          CIBW_ARCHS_LINUX: "x86_64 aarch64"
+          CIBW_ARCHS_MACOS: "x86_64 arm64"
+          CIBW_ARCHS_WINDOWS: "AMD64 ARM64"
       - name: List builded wheels
         run: ls dist
       - uses: actions/upload-artifact@v3
