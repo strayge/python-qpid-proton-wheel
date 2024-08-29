@@ -4,38 +4,71 @@ on: [push]
 env:
   # skip pypy, old python versions, and 32-bit
   CIBW_SKIP: "cp36-* cp37-* cp38-* cp39-* pp* *i686 *-win32"
+  # increase macos platform version as it is oldest available runner
+  CIBW_ENVIRONMENT: "MACOSX_DEPLOYMENT_TARGET=12.0"
 
 jobs:
   build_wheels:
     strategy:
       matrix:
-        os: [ubuntu-20.04, macos-11, windows-2019]
+        os: [ubuntu-20.04, macos-12, windows-2019]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.11"  # used only for cibuildwheel
+          python-version: "3.12"  # used only for cibuildwheel
       - name: Install cibuildwheel
-        run: python -m pip install cibuildwheel==2.14.1
+        run: python -m pip install cibuildwheel==2.20.0
+      - name: Install gnu-sed on macOS
+        if: runner.os == 'macOS'
+        run: |
+          brew install gnu-sed
+          ln -s `which gsed` /usr/local/bin/sed
       - name: Download source
         shell: bash
         run: |
           VERSION=`cat version.txt | head -n 1`
           echo "Current version: $VERSION"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
-          pip download --no-binary ":all:" --no-deps python-qpid-proton==$VERSION
+          # check version is dev
+          if [[ $VERSION == *dev* ]]; then
+            echo "Version is dev, downloading source from github"
+            LIST=`curl -H "Authorization: Bearer ${{ secrets.GH_PUBLIC_TOKEN }}" "https://api.github.com/repos/apache/qpid-proton/actions/artifacts?name=python-src_ubuntu-latest"`
+            INFO=`echo $LIST | jq -r '.artifacts[0]'`
+            URL=`echo $INFO | jq -r '.archive_download_url'`
+            DATE=`echo $INFO | jq -r '.created_at' | cut -d'T' -f1 | sed 's/-//g'`
+            echo "DATE=$DATE" >> "$GITHUB_ENV"
+            echo "Downloading source from $URL"
+            curl -L -v -o temp.zip -H "Authorization: Bearer ${{ secrets.GH_PUBLIC_TOKEN }}" "$URL"
+            unzip temp.zip
+            mv python*.tar.gz python-qpid-proton.tar.gz
+          else
+            echo "Version is not dev, downloading source from pypi"
+            python -m pip download --no-binary ":all:" --no-deps python-qpid-proton==$VERSION
+            mv python*.tar.gz python-qpid-proton.tar.gz
+          fi
       - name: Extract source
         shell: bash
         run: |
-          tar -xf python-qpid-proton-$VERSION.tar.gz &&
-          rm python-qpid-proton-$VERSION.tar.gz &&
-          cp -r python-qpid-proton-$VERSION/* ./
-      - name: Install gnu-sed on macOS
-        if: runner.os == 'macOS'
+          tar -xf python-qpid-proton.tar.gz
+          rm python-qpid-proton.tar.gz
+          mv python* python-qpid-proton
+          cp -r python-qpid-proton/* ./
+          if [[ $VERSION == *dev* ]]; then
+            ORIGINAL_VERSION=`cat VERSION.txt`
+            echo "Original version: $ORIGINAL_VERSION"
+            # remove original postfix (as it is not unique between dev versions)
+            ORIGINAL_VERSION=`python3 -c "print('$ORIGINAL_VERSION'.split('-')[0])"`
+            # add date postfix
+            VERSION=$ORIGINAL_VERSION.dev$DATE
+            echo "New version: $VERSION"
+            echo $VERSION > VERSION.txt
+          fi
+      - name: Fix build dependencies
         run: |
-          brew install gnu-sed
-          ln -s `which gsed` /usr/local/bin/sed
+          # https://github.com/pypa/cibuildwheel/issues/1991
+          sed -i 's/"setuptools"/"setuptools<74"/' pyproject.toml
       - name: Add postfix to package name
         # twine read package name to upload from metadata, so we need to change it
         shell: bash
